@@ -46,67 +46,60 @@ def run():
         time.sleep(3)
 
         print("الضغط على Add to Cart...")
-        page.locator("a:has-text('Add to Cart'), button:has-text('Add to Cart')").first.click()
-        time.sleep(4)
-
-        print("2. تعبئة بيانات الحساب والدولة...")
-        page.locator("input[type='email']").first.fill(email_site_a)
+        page.evaluate("""
+            let btn = Array.from(document.querySelectorAll('a, button')).find(el => el.textContent.includes('Add to Cart'));
+            if (btn) btn.click();
+        """)
         
-        pass_input = page.locator("input[type='password']").first
-        if pass_input.is_visible():
-            pass_input.fill(password_site_a)
+        # انتظار تحويل الصفحة بعد الضغط على السلة
+        print("انتظار تحويل الصفحة لنموذج البيانات...")
+        time.sleep(6)
 
-        fname_input = page.locator("input[name*='first_name']").first
-        if fname_input.is_visible():
-            fname_input.fill(first_name)
-
-        lname_input = page.locator("input[name*='last_name']").first
-        if lname_input.is_visible():
-            lname_input.fill(last_name)
-
-        # اختيار الدولة (مطلوب إجباري في النموذج)
-        try:
-            country_select = page.locator("select[name*='country'], #billing_country").first
-            if country_select.is_visible():
-                country_select.select_option(value="SA")  # اختيار السعودية أو أول خيار
-        except Exception:
-            # في حال كانت القائمة المنسدلة مصممة بـ Select2 / Custom JS
-            page.evaluate("""
-                let select = document.querySelector("select[name*='country']");
-                if (select && select.options.length > 1) {
-                    select.selectedIndex = 1;
-                    select.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            """)
-
+        # انتظار الحقل حتى يصبح موجوداً في الـ DOM
+        page.wait_for_selector("input[type='email']", timeout=40000)
         time.sleep(2)
 
-        print("3. الضغط على الخطوة الأولى: Review order...")
-        review_btn = page.locator("button:has-text('Review order'), a:has-text('Review order')").first
-        if review_btn.is_visible():
-            review_btn.click()
-        else:
-            page.evaluate("""
-                let btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Review order'));
-                if (btn) btn.click();
-            """)
+        print("2. تعبئة البيانات بالكامل...")
+        page.evaluate(f"""
+            let setVal = (selector, val) => {{
+                let el = document.querySelector(selector);
+                if (el) {{
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+                    el.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
+                }}
+            }};
+            setVal("input[type='email']", '{email_site_a}');
+            setVal("input[type='password']", '{password_site_a}');
+            setVal("input[name*='first_name']", '{first_name}');
+            setVal("input[name*='last_name']", '{last_name}');
 
-        print("انتظار الانتقال لصفحة المراجعة...")
+            // اختيار الدولة
+            let select = document.querySelector("select[name*='country']");
+            if (select && select.options.length > 1) {{
+                select.selectedIndex = 1;
+                select.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
+            }}
+        """)
+        time.sleep(2)
+
+        print("3. الضغط على Review order...")
+        page.evaluate("""
+            let btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim().includes('Review order'));
+            if (btn) btn.click();
+        """)
+
+        print("انتظار 5 ثوان للتحويل لصفحة المراجعة...")
         time.sleep(5)
 
-        print("4. الضغط على الخطوة الثانية: التأكيد النهائي للطلب...")
-        # الضغط على زر التأكيد النهائي بعد الانتقال لصفحة المراجعة
-        complete_btn = page.locator("#place_order, button:has-text('Complete'), button:has-text('Place Order')").first
-        if complete_btn.is_visible():
-            complete_btn.click()
-        else:
-            page.evaluate("""
-                let btn = document.querySelector('#place_order') || 
-                          Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Complete') || el.textContent.includes('Place'));
-                if (btn) btn.click();
-            """)
+        print("4. التأكيد النهائي للطلب...")
+        page.evaluate("""
+            let btn = document.querySelector('#place_order') || 
+                      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Complete') || el.textContent.includes('Place'));
+            if (btn) btn.click();
+        """)
 
-        print("انتظار 25 ثانية لمعالجة السيرفر وتوليد الرابط...")
+        print("انتظار 25 ثانية لتوليد الرابط...")
         time.sleep(25)
 
         # استخراج رابط M3U
@@ -135,7 +128,7 @@ def run():
             raise Exception("تعذر العثور على رابط M3U. تحقق من إتمام الطلب.")
 
         # ==========================================
-        # الانتقال إلى الموقع الثاني
+        # الموقع الثاني
         # ==========================================
         print("5. الانتقال إلى الموقع الثاني (MyTV BEST)...")
         page.goto(site_b_url, wait_until="domcontentloaded")
