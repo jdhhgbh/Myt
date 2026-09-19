@@ -25,7 +25,8 @@ def run():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            viewport={'width': 1280, 'height': 800}
         )
         page = context.new_page()
 
@@ -33,47 +34,50 @@ def run():
         page.goto(site_a_url, wait_until="domcontentloaded")
         time.sleep(3)
 
-        # التمرير والضغط على Add to Cart
         page.evaluate("window.scrollBy(0, 800)")
         time.sleep(1)
 
         add_to_cart_btn = page.locator("a:has-text('Add to Cart'), button:has-text('Add to Cart')").first
         add_to_cart_btn.click()
-        print("تم الضغط على Add to Cart، جاري انتظار الانتقال لصفحة الدفع...")
+        print("تم الضغط على Add to Cart...")
 
-        # الانتظار الصريح لتغير الرابط أو ظهور حقل البريد
-        page.wait_for_selector("input", timeout=60000)
-        time.sleep(3)
+        # انتظار تحميل عناصر نموذج Checkout
+        page.wait_for_selector("#place_order, button[type='submit']", timeout=60000)
+        time.sleep(2)
 
-        print("2. تعبئة بيانات الحساب في الموقع الأول...")
-        # استخدام عناصر إدخال مرنة لتفادي خطأ الـ Timeout
-        email_field = page.locator("input[type='email'], input[name*='email'], input[id*='email']").first
-        email_field.wait_for(state="visible", timeout=30000)
-        email_field.fill(email_site_a)
+        print("2. تعبئة بيانات الحساب...")
+        # تعبئة الإيميل والباسورد والأشخاص
+        page.locator("input[type='email']").first.fill(email_site_a)
+        
+        pass_input = page.locator("input[type='password']").first
+        if pass_input.is_visible():
+            pass_input.fill(password_site_a)
 
-        pass_field = page.locator("input[type='password'], input[name*='pass']").first
-        pass_field.fill(password_site_a)
-
-        if page.locator("input[name*='first']").is_visible():
-            page.locator("input[name*='first']").first.fill(first_name)
-        if page.locator("input[name*='last']").is_visible():
-            page.locator("input[name*='last']").first.fill(last_name)
+        if page.locator("input[name*='first_name']").is_visible():
+            page.locator("input[name*='first_name']").first.fill(first_name)
+        if page.locator("input[name*='last_name']").is_visible():
+            page.locator("input[name*='last_name']").first.fill(last_name)
 
         if page.locator("select[name*='country']").is_visible():
             page.locator("select[name*='country']").first.select_option(label="Albania")
 
-        print("تم تعبئة البيانات، جاري الضغط على Review Order...")
-        review_btn = page.locator("button:has-text('Review order'), input[value='Review order'], button[type='submit']").first
-        review_btn.click()
+        time.sleep(2)
 
-        time.sleep(5)
+        print("3. الضغط على زر Review Order / Complete Order...")
+        # استهداف زر place_order بناءً على معرف id المباشر المعروض في السجل
+        place_order_btn = page.locator("#place_order")
+        
+        # الضغط المرة الأولى (Review Order)
+        place_order_btn.click(force=True)
+        print("تم الضغط على الخطوة الأولى، انتظار تحديث النموذج...")
+        time.sleep(4)
 
-        print("3. تأكيد الطلب واكتمال الشراء...")
-        complete_btn = page.locator("button:has-text('Complete Order'), input[value='Complete Order']").first
-        complete_btn.wait_for(state="visible", timeout=30000)
-        complete_btn.click()
+        # إذا ما زال الزر موجوداً ومطلوب الضغط عليه مرة ثانية للتأكيد (Complete Order)
+        if place_order_btn.is_visible():
+            print("الضغط على Complete Order لتأكيد الطلب النهائي...")
+            place_order_btn.click(force=True)
 
-        print("انتظار 30 ثانية لاكتمل الطلب واستخراج الرابط...")
+        print("انتظار 30 ثانية لمعالجة الطلب واستخراج الرابط...")
         time.sleep(30)
 
         # استخراج رابط M3U
@@ -91,7 +95,7 @@ def run():
             if m3u_locator.count() > 0:
                 m3u_url = m3u_locator.first.inner_text().strip()
 
-        print(f"تم استخراج الرابط: {m3u_url}")
+        print(f"تم استخراج الرابط بنجاح: {m3u_url}")
 
         if not m3u_url:
             raise Exception("تعذر العثور على رابط M3U.")
