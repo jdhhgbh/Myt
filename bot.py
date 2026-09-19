@@ -60,36 +60,48 @@ def run():
 
         # 2. التوجه لموقع SaudiIPTV والتجربة المجانية
         print("2. جاري فتح موقع SaudiIPTV...")
-        page.goto("https://saudiptv.com/checkout?plan=1m", wait_until="domcontentloaded", timeout=60000)
+        page.goto("https://saudiptv.com/checkout?plan=1m", wait_until="networkidle", timeout=60000)
 
-        # الضغط على زر Try Free Trial إن كان مظهراً
-        if page.is_visible("text=Try Free Trial"):
-            page.click("text=Try Free Trial")
+        # الضغط على زر Try Free Trial العلوي إن وجد
+        try:
+            page.click("text=Try Free Trial", timeout=5000)
+        except Exception:
+            pass
 
-        page.wait_for_selector("input[placeholder='John Doe'], input[name='name'], input[type='text']", timeout=15000)
+        # انتظار ظهور حقول التعبئة
+        page.wait_for_selector("input[type='email'], input[placeholder*='example']", timeout=20000)
 
-        # تعبئة الاسم والإيميل
         print("3. إدخال بيانات طلب التجربة المجانية...")
         fake_name = f"User {generate_random_str(5)}"
         
-        # محاولة تحديد الحقول بأكثر من طريقة لضمان الدقة
+        # تعبئة الاسم
         try:
             page.fill("input[placeholder='John Doe']", fake_name)
         except Exception:
             page.fill("input[type='text']", fake_name)
 
+        # تعبئة الإيميل
+        email_field = None
         try:
-            page.fill("input[placeholder='you@example.com']", temp_email)
+            email_field = page.locator("input[placeholder='you@example.com']")
+            email_field.fill(temp_email)
         except Exception:
-            page.fill("input[type='email']", temp_email)
+            email_field = page.locator("input[type='email']")
+            email_field.fill(temp_email)
 
         time.sleep(1)
 
-        # الضغط على زر الحصول على التجربة
+        # 4. إرسال النموذج (الضغط على الزر أو الضغط على Enter داخل الحقل)
         print("4. تقديم الطلب...")
-        page.click("button:has-text('Get Free Trial'), input[type='submit']")
+        try:
+            # البحث عن أي عنصر يحوي النص Get Free Trial والنقر عليه
+            page.click("text=Get Free Trial", timeout=8000)
+        except Exception:
+            print("تعذر النقر المباشر، جاري إرسال الطلب عبر الضغط على Enter...")
+            if email_field:
+                email_field.press("Enter")
 
-        # 3. فحص البريد الوارد
+        # 5. فحص البريد الوارد
         print("5. بانتظار وصول رسالة التفعيل إلى صندوق البريد...")
         mail_body = None
         start_time = time.time()
@@ -105,7 +117,7 @@ def run():
         if not mail_body:
             raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
 
-        # 4. استخراج رابط M3U
+        # 6. استخراج رابط M3U
         print("6. استخراج رابط M3U...")
         m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+[^\s"<]*', mail_body)
         if not m3u_match:
@@ -117,7 +129,7 @@ def run():
         m3u_url = m3u_match.group(0).replace("&amp;", "&")
         print(f"تم استخراج رابط M3U بنجاح: {m3u_url}")
 
-        # 5. التوجه لموقع MyTV وتحديث الجهاز
+        # 7. التوجه لموقع MyTV وتحديث الجهاز
         mytv_link = f"https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid={DEVICE_ID}&lang=ar-SA"
         print("7. الانتقال إلى موقع MyTV...")
         page.goto(mytv_link, wait_until="domcontentloaded", timeout=60000)
