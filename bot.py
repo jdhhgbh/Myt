@@ -1,29 +1,38 @@
 import os
 import re
 import time
+import random
+import string
 import requests
 from playwright.sync_api import sync_playwright
 
 DEVICE_ID = os.environ.get("MYTV_DEVICE_ID", "d2ae-801d-d2f7-94d5-9398")
 
-def get_guerrilla_email(session):
-    """إنشاء بريد مؤقت عبر Guerrilla Mail API"""
-    res = session.get("https://api.guerrillamail.com/ajax.php?f=get_email_address").json()
-    email = res.get("email_addr")
-    sid_token = res.get("sid_token")
-    return email, sid_token
+def generate_random_string(length=10):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-def check_guerrilla_inbox(session, sid_token):
-    """فحص الرسائل الواردة"""
-    res = session.get(f"https://api.guerrillamail.com/ajax.php?f=check_email&sid_token={sid_token}&seq=0").json()
-    emails = res.get("list", [])
-    for mail in emails:
-        # البحث عن رسالة التفعيل
-        if "greatest" in mail.get("mail_from", "").lower() or "greatest" in mail.get("mail_subject", "").lower() or "trial" in mail.get("mail_subject", "").lower():
-            mail_id = mail.get("mail_id")
+def get_1secmail():
+    """إنشاء بريد مؤقت باسم ونطاق عشوائي"""
+    username = generate_random_string(10)
+    domains = ["1secmail.com", "1secmail.org", "1secmail.net"]
+    domain = random.choice(domains)
+    email = f"{username}@{domain}"
+    return username, domain, email
+
+def check_1secmail_inbox(session, username, domain):
+    """فحص صندوق الرسائل الواردة"""
+    url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
+    try:
+        res = session.get(url, timeout=10).json()
+        for msg in res:
+            msg_id = msg.get("id")
             # جلب محتوى الرسالة
-            msg_res = session.get(f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={mail_id}&sid_token={sid_token}").json()
-            return msg_res.get("mail_body", "")
+            read_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}"
+            msg_detail = session.get(read_url, timeout=10).json()
+            body = msg_detail.get("body", "") or msg_detail.get("textBody", "")
+            return body
+    except Exception as e:
+        print(f"تنبيه أثناء فحص البريد: {e}")
     return None
 
 def run():
@@ -32,10 +41,9 @@ def run():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     })
 
-    # 1. إنشاء بريد إلكتروني مؤقت
-    print("1. جاري إنشاء بريد مؤقت عبر API...")
-    temp_email, sid_token = get_guerrilla_email(session)
-    print(f"تم الحصول على البريد المؤقت: {temp_email}")
+    # 1. إنشاء بريد مؤقت جديد
+    username, domain, temp_email = get_1secmail()
+    print(f"1. تم إنشاء البريد المؤقت: {temp_email}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -56,18 +64,18 @@ def run():
         page_iptv.click("text=ACTIVATE YOUR FREE TRIAL")
         print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
-        # 3. انتظار وصول البريد عبر API مباشرة
-        print("4. فحص صندوق البريد الوارد...")
+        # 3. فحص وصول البريد عبر API
+        print("4. فحص البريد الوارد عبر 1secmail API...")
         mail_body = None
         start_time = time.time()
         timeout = 180  # 3 دقائق
 
         while time.time() - start_time < timeout:
-            mail_body = check_guerrilla_inbox(session, sid_token)
+            mail_body = check_1secmail_inbox(session, username, domain)
             if mail_body:
                 print("تمت استعادة رسالة التفعيل بنجاح!")
                 break
-            time.sleep(10)
+            time.sleep(7)
 
         if not mail_body:
             raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
