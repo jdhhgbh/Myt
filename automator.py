@@ -41,12 +41,10 @@ def run():
         add_to_cart_btn.click()
         print("تم الضغط على Add to Cart...")
 
-        # انتظار تحميل عناصر نموذج Checkout
         page.wait_for_selector("#place_order, button[type='submit']", timeout=60000)
         time.sleep(2)
 
         print("2. تعبئة بيانات الحساب...")
-        # تعبئة الإيميل والباسورد والأشخاص
         page.locator("input[type='email']").first.fill(email_site_a)
         
         pass_input = page.locator("input[type='password']").first
@@ -63,19 +61,20 @@ def run():
 
         time.sleep(2)
 
-        print("3. الضغط على زر Review Order / Complete Order...")
-        # استهداف زر place_order بناءً على معرف id المباشر المعروض في السجل
-        place_order_btn = page.locator("#place_order")
+        print("3. الضغط على Review Order...")
+        # استهداف الأزرار الظاهرة فقط لتفادي العناصر المخفية
+        visible_button = page.locator("#place_order:visible, button.cfw-primary-btn:visible").first
+        visible_button.wait_for(state="visible", timeout=30000)
+        visible_button.click()
+        print("تم الضغط على الخطوة الأولى (Review Order)...")
         
-        # الضغط المرة الأولى (Review Order)
-        place_order_btn.click(force=True)
-        print("تم الضغط على الخطوة الأولى، انتظار تحديث النموذج...")
-        time.sleep(4)
+        time.sleep(5)
 
-        # إذا ما زال الزر موجوداً ومطلوب الضغط عليه مرة ثانية للتأكيد (Complete Order)
-        if place_order_btn.is_visible():
-            print("الضغط على Complete Order لتأكيد الطلب النهائي...")
-            place_order_btn.click(force=True)
+        # الضغط المرة الثانية على الزر الظاهر لتأكيد الطلب
+        print("الضغط على Complete Order...")
+        confirm_button = page.locator("#place_order:visible, button.cfw-primary-btn:visible").first
+        if confirm_button.is_visible():
+            confirm_button.click()
 
         print("انتظار 30 ثانية لمعالجة الطلب واستخراج الرابط...")
         time.sleep(30)
