@@ -34,79 +34,76 @@ def run():
         page.goto(site_a_url, wait_until="networkidle")
         time.sleep(2)
 
-        # النقر على Add to Cart عبر JS لتفادي مشاكل الرؤية
         print("إضافة المنتج للسلة...")
         page.evaluate("""
             let btn = document.querySelector("a[href*='add-to-cart'], button[type='submit'], .add_to_cart_button");
             if (btn) btn.click();
         """)
-        time.sleep(5)
+        time.sleep(4)
 
         print("2. تعبئة بيانات الحساب بواسطة JS...")
-        # حقن البيانات مباشرة في حقول النموذج بدون انتظار عناصر Playwright المعقدة
         page.evaluate(f"""
-            let emailField = document.querySelector("input[type='email']");
-            if (emailField) {{
-                emailField.value = '{email_site_a}';
-                emailField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-                emailField.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
-            }}
-            let passField = document.querySelector("input[type='password']");
-            if (passField) {{
-                passField.value = '{password_site_a}';
-                passField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-                passField.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
-            }}
-            let fnameField = document.querySelector("input[name*='first_name']");
-            if (fnameField) {{
-                fnameField.value = '{first_name}';
-                fnameField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-            }}
-            let lnameField = document.querySelector("input[name*='last_name']");
-            if (lnameField) {{
-                lnameField.value = '{last_name}';
-                lnameField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-            }}
+            let setVal = (selector, val) => {{
+                let el = document.querySelector(selector);
+                if (el) {{
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+                    el.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
+                }}
+            }};
+            setVal("input[type='email']", '{email_site_a}');
+            setVal("input[type='password']", '{password_site_a}');
+            setVal("input[name*='first_name']", '{first_name}');
+            setVal("input[name*='last_name']", '{last_name}');
         """)
         time.sleep(2)
 
-        print("3. إرسال الطلب وحجز التجربة المجانية...")
-        # النقر على الزر الرئيسي بـ JS مباشرة
+        print("3. إرسال الطلب وإكمال الشراء...")
+        # الضغط الفعلي على الزر وتقديم النموذج
         page.evaluate("""
-            let btn = document.querySelector("#place_order") || document.querySelector("button.cfw-primary-btn");
-            if (btn) btn.click();
+            let form = document.querySelector('form.checkout') || document.querySelector('form[name="checkout"]');
+            if (form) {
+                let submitBtn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
+                if (submitBtn) { submitBtn.click(); }
+                else { form.submit(); }
+            }
         """)
-        print("تم الضغط على الخطوة الأولى (Review/Complete)...")
-        time.sleep(6)
-
-        # نقرة ثانية احتياطية في حال كان النموذج يتكون من خطوتين (Tabbed Checkout)
-        page.evaluate("""
-            let btn = document.querySelector("#place_order") || document.querySelector("button.cfw-primary-btn");
-            if (btn) btn.click();
-        """)
-        print("تم التأكيد النهائي للطلب...")
-
-        print("انتظار 30 ثانية لتوليد الرابط...")
-        time.sleep(30)
-
-        # استخراج رابط M3U
-        content = page.content()
-        m3u_matches = re.findall(r'https?://[^\s"<>\']+\.php\?[^\s"<>\']+', content)
         
+        print("انتظار تحويل الصفحة ومُعالجة الطلب...")
+        time.sleep(10)
+
+        # محاولة الضغط التأكيدي إذا كانت هناك خطوة مراجعة ثانية
+        page.evaluate("""
+            let btn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
+            if (btn && btn.offsetWidth > 0) btn.click();
+        """)
+
+        print("انتظار 25 ثانية لتحميل صفحة نجاح الطلب (Order Received)...")
+        time.sleep(25)
+
+        # البحث عن رابط M3U في كامل محتوى النص وروابط الصفحة
+        content = page.content()
         m3u_url = ""
-        for url in m3u_matches:
-            if "m3u" in url or "username=" in url:
-                m3u_url = url
-                break
+
+        # البحث بانتظام عن صيغ الروابط المباشرة (http/https وبها m3u أو get.php)
+        m3u_matches = re.findall(r'https?://[^\s"<>\']+(?:get\.php|m3u)[^\s"<>\']*', content, re.IGNORECASE)
+        if m3u_matches:
+            m3u_url = m3u_matches[0]
+
+        # خيار إضافي لاستخراج الرابط من عناصر A إذا وُجد
+        if not m3u_url:
+            links = page.locator("a[href*='get.php'], a[href*='m3u']").all()
+            for link in links:
+                href = link.get_attribute("href")
+                if href:
+                    m3u_url = href
+                    break
+
+        print(f"نتيجة الاستخراج: {m3u_url}")
 
         if not m3u_url:
-            m3u_locator = page.locator("text=/http:\/\/.*get\.php.*/")
-            if m3u_locator.count() > 0:
-                m3u_url = m3u_locator.first.inner_text().strip()
-
-        print(f"تم استخراج الرابط بنجاح: {m3u_url}")
-
-        if not m3u_url:
+            # طباعة جزء من المحتوى في اللوج لمساعدتنا إن تعثرت القراءة
+            print("الصفحة الحالية URL:", page.url)
             raise Exception("تعذر العثور على رابط M3U. تحقق من إتمام الطلب.")
 
         # ==========================================
