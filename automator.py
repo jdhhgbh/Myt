@@ -13,8 +13,7 @@ def generate_strong_password(length=12):
     return ''.join(random.choices(chars, k=length))
 
 def run():
-    # رابط صفحة الدفع مباشرة لإضافة التجربة المجانية لسلة التسوق وتخطي التعليق
-    checkout_url = "https://xcodesiptv.com/i18/checkout/?add-to-cart=18"
+    site_a_url = "https://xcodesiptv.com/i18/"
     site_b_url = "https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid=d2ae-801d-d2f7-94d5-9398&lang=ar-SA"
 
     email_site_a = f"{generate_random_string()}@outlook.sa"
@@ -31,48 +30,63 @@ def run():
         )
         page = context.new_page()
 
-        print("1. التوجه مباشرة لصفحة الـ Checkout للموقع الأول...")
-        page.goto(checkout_url, wait_until="domcontentloaded")
-        time.sleep(5)
-
-        print("2. تعبئة البيانات في الحقول الأساسية...")
-        # تعبئة حقل البريد الإلكتروني وكلمة السر مباشرة
-        email_input = page.locator("input[type='email']").first
-        email_input.wait_for(state="attached", timeout=30000)
-        email_input.fill(email_site_a)
-
-        pass_input = page.locator("input[type='password']").first
-        if pass_input.is_visible():
-            pass_input.fill(password_site_a)
-
-        if page.locator("input[name*='first_name']").is_visible():
-            page.locator("input[name*='first_name']").first.fill(first_name)
-        if page.locator("input[name*='last_name']").is_visible():
-            page.locator("input[name*='last_name']").first.fill(last_name)
-
-        if page.locator("select[name*='country']").is_visible():
-            page.locator("select[name*='country']").first.select_option(label="Albania")
-
+        print("1. فتح الصفحة الرئيسية للموقع الأول...")
+        page.goto(site_a_url, wait_until="networkidle")
         time.sleep(2)
 
-        print("3. إرسال النموذج مباشرة (Submit Form)...")
-        # بدلاً من الانتظار المعقد للأزرار المخفية، يتم الضغط بوساطة JavaScript أو عبر الإرسال المباشر للفورم
+        # النقر على Add to Cart عبر JS لتفادي مشاكل الرؤية
+        print("إضافة المنتج للسلة...")
         page.evaluate("""
-            let btn = document.querySelector('button.cfw-primary-btn:not([style*="display: none"])') || document.querySelector('#place_order');
-            if (btn) { btn.click(); }
-            else { document.querySelector('form.checkout').submit(); }
+            let btn = document.querySelector("a[href*='add-to-cart'], button[type='submit'], .add_to_cart_button");
+            if (btn) btn.click();
         """)
-        print("تم إرسال الطلب الأول (Review Order)...")
         time.sleep(5)
 
-        # الضغط التأكيدي لإتمام الطلب النهائي
-        page.evaluate("""
-            let btn = document.querySelector('#place_order') || document.querySelector('button[type="submit"]');
-            if (btn) { btn.click(); }
+        print("2. تعبئة بيانات الحساب بواسطة JS...")
+        # حقن البيانات مباشرة في حقول النموذج بدون انتظار عناصر Playwright المعقدة
+        page.evaluate(f"""
+            let emailField = document.querySelector("input[type='email']");
+            if (emailField) {{
+                emailField.value = '{email_site_a}';
+                emailField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+                emailField.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
+            }}
+            let passField = document.querySelector("input[type='password']");
+            if (passField) {{
+                passField.value = '{password_site_a}';
+                passField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+                passField.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
+            }}
+            let fnameField = document.querySelector("input[name*='first_name']");
+            if (fnameField) {{
+                fnameField.value = '{first_name}';
+                fnameField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+            }}
+            let lnameField = document.querySelector("input[name*='last_name']");
+            if (lnameField) {{
+                lnameField.value = '{last_name}';
+                lnameField.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
+            }}
         """)
-        print("تم إرسال الطلب النهائي (Complete Order)...")
+        time.sleep(2)
 
-        print("انتظار 30 ثانية لاكتمال الطلب وتحميل صفحة الرابط...")
+        print("3. إرسال الطلب وحجز التجربة المجانية...")
+        # النقر على الزر الرئيسي بـ JS مباشرة
+        page.evaluate("""
+            let btn = document.querySelector("#place_order") || document.querySelector("button.cfw-primary-btn");
+            if (btn) btn.click();
+        """)
+        print("تم الضغط على الخطوة الأولى (Review/Complete)...")
+        time.sleep(6)
+
+        # نقرة ثانية احتياطية في حال كان النموذج يتكون من خطوتين (Tabbed Checkout)
+        page.evaluate("""
+            let btn = document.querySelector("#place_order") || document.querySelector("button.cfw-primary-btn");
+            if (btn) btn.click();
+        """)
+        print("تم التأكيد النهائي للطلب...")
+
+        print("انتظار 30 ثانية لتوليد الرابط...")
         time.sleep(30)
 
         # استخراج رابط M3U
@@ -93,7 +107,7 @@ def run():
         print(f"تم استخراج الرابط بنجاح: {m3u_url}")
 
         if not m3u_url:
-            raise Exception("تعذر العثور على رابط M3U، تأكد من استكمال الطلب.")
+            raise Exception("تعذر العثور على رابط M3U. تحقق من إتمام الطلب.")
 
         # ==========================================
         # الانتقال إلى الموقع الثاني
