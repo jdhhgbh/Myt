@@ -7,69 +7,42 @@ from playwright.sync_api import sync_playwright
 DEVICE_ID = os.environ.get("MYTV_DEVICE_ID", "d2ae-801d-d2f7-94d5-9398")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 }
 
-def create_mailtm_account():
-    """إنشاء حساب بريد مؤقت مع إعادة المحاولة في حال فشل الاتصال"""
-    for attempt in range(5):
-        try:
-            session = requests.Session()
-            session.headers.update(HEADERS)
-            
-            # 1. جلب النطاقات المتاحة
-            res = session.get("https://api.mail.tm/domains", timeout=15).json()
-            domain = res['hydra:member'][0]['domain']
-            
-            # 2. إنشاء بيانات عشوائية
-            username = f"user_{int(time.time())}_{attempt}"
-            email = f"{username}@{domain}"
-            password = "PassWord123!"
-            
-            # 3. تسجيل الحساب
-            session.post("https://api.mail.tm/accounts", json={"address": email, "password": password}, timeout=15)
-            
-            # 4. جلب رمز التوثيق
-            token_res = session.post("https://api.mail.tm/token", json={"address": email, "password": password}, timeout=15).json()
-            token = token_res['token']
-            
-            return email, token
-        except (requests.exceptions.ConnectionError, requests.exceptions.RequestException) as e:
-            print(f"محاولة {attempt + 1} فشلت بسبب انقطاع الاتصال: {e}. جاري إعادة المحاولة...")
-            time.sleep(5)
-            
-    raise Exception("تعذر الاتصال بمركز البريد المؤقت بعد 5 محاولات.")
-
-def wait_for_m3u_mailtm(token, timeout=120):
-    """انتظار وصول البريد واستخراج رابط M3U"""
+def get_1secmail_account():
+    """إنشاء بريد مؤقت جديد عبر API"""
     session = requests.Session()
-    session.headers.update({
-        "Authorization": f"Bearer {token}",
-        **HEADERS
-    })
+    session.headers.update(HEADERS)
     
+    # استخدام نطاق موثوق
+    res = session.get("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1", timeout=15).json()
+    email = res[0]
+    login, domain = email.split("@")
+    return session, email, login, domain
+
+def wait_for_m3u_1secmail(session, login, domain, timeout=120):
+    """انتظار وصول الرسالة وقراءة رابط M3U"""
     start_time = time.time()
-    print("بانتظار وصول البريد...")
+    print("بانتظار وصول البريد من Greatest IPTV...")
     
     while time.time() - start_time < timeout:
         try:
-            res = session.get("https://api.mail.tm/messages", timeout=15).json()
-            messages = res.get('hydra:member', [])
-            
-            if messages:
-                msg_id = messages[0]['id']
-                msg_detail = session.get(f"https://api.mail.tm/messages/{msg_id}", timeout=15).json()
-                body = msg_detail.get('text') or msg_detail.get('html') or ""
+            res = session.get(f"https://www.1secmail.com/api/v1/?action=getMessages&login={login}&domain={domain}", timeout=15).json()
+            if res:
+                msg_id = res[0]['id']
+                msg_detail = session.get(f"https://www.1secmail.com/api/v1/?action=readMessage&login={login}&domain={domain}&id={msg_id}", timeout=15).json()
+                body = msg_detail.get('textBody') or msg_detail.get('body') or ""
                 
-                # استخراج رابط M3U
-                m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+&type=m3u_plus&output=ts', body)
+                # استخراج رابط m3u
+                m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+[^\s"<]*', body)
                 if not m3u_match:
-                    m3u_match = re.search(r'http://gr8iptv\.com/get\.php\?[^\s"<]+', body)
-                    
+                    m3u_match = re.search(r'https?://[^\s"<]+/get\.php\?[^\s"<]+', body)
+                
                 if m3u_match:
                     return m3u_match.group(0).replace("&amp;", "&")
         except Exception as e:
-            print(f"تحذير مؤقت أثناء فحص البريد: {e}")
+            print(f"تنبيه مؤقت عند فحص البريد: {e}")
             
         time.sleep(5)
         
@@ -77,13 +50,13 @@ def wait_for_m3u_mailtm(token, timeout=120):
 
 def run():
     # 1. إنشاء البريد المؤقت
-    email, token = create_mailtm_account()
+    session, email, login, domain = get_1secmail_account()
     print(f"1. تم إنشاء البريد المؤقت بنجاح: {email}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 720}
         )
         page = context.new_page()
@@ -100,7 +73,7 @@ def run():
         print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
         # 3. قراءة البريد وجلب الرابط
-        m3u_url = wait_for_m3u_mailtm(token)
+        m3u_url = wait_for_m3u_1secmail(session, login, domain)
         print(f"4. تم استخراج رابط M3U بنجاح: {m3u_url}")
 
         # 4. التوجه لموقع MyTV وتحديث التلفزيون
