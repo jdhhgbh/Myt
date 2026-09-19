@@ -14,6 +14,7 @@ def generate_strong_password(length=12):
 
 def run():
     site_a_url = "https://xcodesiptv.com/i18/"
+    checkout_url = "https://xcodesiptv.com/checkout/"
     site_b_url = "https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid=d2ae-801d-d2f7-94d5-9398&lang=ar-SA"
 
     email_site_a = f"{generate_random_string()}@gmail.com"
@@ -41,25 +42,21 @@ def run():
 
         page.on("response", handle_response)
 
-        print("1. فتح الصفحة الرئيسية...")
+        print("1. إضافة المنتج للسلة...")
         page.goto(site_a_url, wait_until="domcontentloaded")
-        time.sleep(3)
+        time.sleep(2)
 
-        print("الضغط على Add to Cart...")
         page.evaluate("""
             let btn = Array.from(document.querySelectorAll('a, button')).find(el => el.textContent.includes('Add to Cart'));
             if (btn) btn.click();
         """)
-        
-        # انتظار تحويل الصفحة بعد الضغط على السلة
-        print("انتظار تحويل الصفحة لنموذج البيانات...")
-        time.sleep(6)
+        time.sleep(3)
 
-        # انتظار الحقل حتى يصبح موجوداً في الـ DOM
-        page.wait_for_selector("input[type='email']", timeout=40000)
-        time.sleep(2)
+        print("2. الانتقال المباشر لصفحة تعبئة البيانات (Checkout)...")
+        page.goto(checkout_url, wait_until="domcontentloaded")
+        time.sleep(3)
 
-        print("2. تعبئة البيانات بالكامل...")
+        print("3. تعبئة بيانات الحساب والدولة...")
         page.evaluate(f"""
             let setVal = (selector, val) => {{
                 let el = document.querySelector(selector);
@@ -74,7 +71,6 @@ def run():
             setVal("input[name*='first_name']", '{first_name}');
             setVal("input[name*='last_name']", '{last_name}');
 
-            // اختيار الدولة
             let select = document.querySelector("select[name*='country']");
             if (select && select.options.length > 1) {{
                 select.selectedIndex = 1;
@@ -83,19 +79,18 @@ def run():
         """)
         time.sleep(2)
 
-        print("3. الضغط على Review order...")
+        print("4. الضغط على Review order...")
         page.evaluate("""
-            let btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim().includes('Review order'));
+            let btn = Array.from(document.querySelectorAll('button, a, input[type="submit"]')).find(el => el.textContent.trim().includes('Review order') || el.value?.includes('Review'));
             if (btn) btn.click();
         """)
 
-        print("انتظار 5 ثوان للتحويل لصفحة المراجعة...")
-        time.sleep(5)
+        time.sleep(4)
 
-        print("4. التأكيد النهائي للطلب...")
+        print("5. التأكيد النهائي للطلب...")
         page.evaluate("""
             let btn = document.querySelector('#place_order') || 
-                      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Complete') || el.textContent.includes('Place'));
+                      Array.from(document.querySelectorAll('button, a, input[type="submit"]')).find(el => el.textContent.includes('Complete') || el.textContent.includes('Place') || el.value?.includes('Place'));
             if (btn) btn.click();
         """)
 
@@ -130,7 +125,7 @@ def run():
         # ==========================================
         # الموقع الثاني
         # ==========================================
-        print("5. الانتقال إلى الموقع الثاني (MyTV BEST)...")
+        print("6. الانتقال إلى الموقع الثاني (MyTV BEST)...")
         page.goto(site_b_url, wait_until="domcontentloaded")
         time.sleep(3)
 
@@ -142,7 +137,7 @@ def run():
         upload_new_btn.click()
         time.sleep(2)
 
-        print("6. تعبئة بيانات الشاشة ورابط M3U...")
+        print("7. تعبئة بيانات الشاشة ورابط M3U...")
         page.locator("input[type='email']").first.fill(email_site_b)
 
         select_source = page.locator("select").first
