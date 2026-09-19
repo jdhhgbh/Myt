@@ -13,7 +13,8 @@ def generate_strong_password(length=12):
     return ''.join(random.choices(chars, k=length))
 
 def run():
-    site_a_url = "https://xcodesiptv.com/i18/"
+    # رابط صفحة الدفع مباشرة لإضافة التجربة المجانية لسلة التسوق وتخطي التعليق
+    checkout_url = "https://xcodesiptv.com/i18/checkout/?add-to-cart=18"
     site_b_url = "https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid=d2ae-801d-d2f7-94d5-9398&lang=ar-SA"
 
     email_site_a = f"{generate_random_string()}@outlook.sa"
@@ -30,23 +31,16 @@ def run():
         )
         page = context.new_page()
 
-        print("1. فتح الموقع الأول وحجز التجربة المجانية...")
-        page.goto(site_a_url, wait_until="domcontentloaded")
-        time.sleep(3)
+        print("1. التوجه مباشرة لصفحة الـ Checkout للموقع الأول...")
+        page.goto(checkout_url, wait_until="domcontentloaded")
+        time.sleep(5)
 
-        page.evaluate("window.scrollBy(0, 800)")
-        time.sleep(1)
+        print("2. تعبئة البيانات في الحقول الأساسية...")
+        # تعبئة حقل البريد الإلكتروني وكلمة السر مباشرة
+        email_input = page.locator("input[type='email']").first
+        email_input.wait_for(state="attached", timeout=30000)
+        email_input.fill(email_site_a)
 
-        add_to_cart_btn = page.locator("a:has-text('Add to Cart'), button:has-text('Add to Cart')").first
-        add_to_cart_btn.click()
-        print("تم الضغط على Add to Cart...")
-
-        page.wait_for_selector("#place_order, button[type='submit']", timeout=60000)
-        time.sleep(2)
-
-        print("2. تعبئة بيانات الحساب...")
-        page.locator("input[type='email']").first.fill(email_site_a)
-        
         pass_input = page.locator("input[type='password']").first
         if pass_input.is_visible():
             pass_input.fill(password_site_a)
@@ -61,22 +55,24 @@ def run():
 
         time.sleep(2)
 
-        print("3. الضغط على Review Order...")
-        # استهداف الأزرار الظاهرة فقط لتفادي العناصر المخفية
-        visible_button = page.locator("#place_order:visible, button.cfw-primary-btn:visible").first
-        visible_button.wait_for(state="visible", timeout=30000)
-        visible_button.click()
-        print("تم الضغط على الخطوة الأولى (Review Order)...")
-        
+        print("3. إرسال النموذج مباشرة (Submit Form)...")
+        # بدلاً من الانتظار المعقد للأزرار المخفية، يتم الضغط بوساطة JavaScript أو عبر الإرسال المباشر للفورم
+        page.evaluate("""
+            let btn = document.querySelector('button.cfw-primary-btn:not([style*="display: none"])') || document.querySelector('#place_order');
+            if (btn) { btn.click(); }
+            else { document.querySelector('form.checkout').submit(); }
+        """)
+        print("تم إرسال الطلب الأول (Review Order)...")
         time.sleep(5)
 
-        # الضغط المرة الثانية على الزر الظاهر لتأكيد الطلب
-        print("الضغط على Complete Order...")
-        confirm_button = page.locator("#place_order:visible, button.cfw-primary-btn:visible").first
-        if confirm_button.is_visible():
-            confirm_button.click()
+        # الضغط التأكيدي لإتمام الطلب النهائي
+        page.evaluate("""
+            let btn = document.querySelector('#place_order') || document.querySelector('button[type="submit"]');
+            if (btn) { btn.click(); }
+        """)
+        print("تم إرسال الطلب النهائي (Complete Order)...")
 
-        print("انتظار 30 ثانية لمعالجة الطلب واستخراج الرابط...")
+        print("انتظار 30 ثانية لاكتمال الطلب وتحميل صفحة الرابط...")
         time.sleep(30)
 
         # استخراج رابط M3U
@@ -97,7 +93,7 @@ def run():
         print(f"تم استخراج الرابط بنجاح: {m3u_url}")
 
         if not m3u_url:
-            raise Exception("تعذر العثور على رابط M3U.")
+            raise Exception("تعذر العثور على رابط M3U، تأكد من استكمال الطلب.")
 
         # ==========================================
         # الانتقال إلى الموقع الثاني
