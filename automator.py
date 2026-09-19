@@ -35,53 +35,51 @@ def run():
         time.sleep(2)
 
         print("إضافة المنتج للسلة...")
-        page.evaluate("""
-            let btn = document.querySelector("a[href*='add-to-cart'], button[type='submit'], .add_to_cart_button");
-            if (btn) btn.click();
-        """)
+        page.locator("a:has-text('Add to Cart'), button:has-text('Add to Cart')").first.click()
         time.sleep(4)
 
-        print("2. تعبئة بيانات الحساب بواسطة JS...")
-        page.evaluate(f"""
-            let setVal = (selector, val) => {{
-                let el = document.querySelector(selector);
-                if (el) {{
-                    el.value = val;
-                    el.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-                    el.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
-                }}
-            }};
-            setVal("input[type='email']", '{email_site_a}');
-            setVal("input[type='password']", '{password_site_a}');
-            setVal("input[name*='first_name']", '{first_name}');
-            setVal("input[name*='last_name']", '{last_name}');
-        """)
+        print("2. تعبئة البيانات في صفحة Checkout...")
+        # تعبئة الحقول عبر Playwright لإطلاق أحداث الكيبورد المباشرة
+        page.locator("input[type='email']").first.fill(email_site_a)
+        
+        pass_input = page.locator("input[type='password']").first
+        if pass_input.is_visible():
+            pass_input.fill(password_site_a)
+
+        fname_input = page.locator("input[name*='first_name']").first
+        if fname_input.is_visible():
+            fname_input.fill(first_name)
+
+        lname_input = page.locator("input[name*='last_name']").first
+        if lname_input.is_visible():
+            lname_input.fill(last_name)
+
         time.sleep(2)
 
-        print("3. إرسال الطلب وإكمال الشراء...")
-        # الضغط الفعلي على الزر وتقديم النموذج
-        page.evaluate("""
-            let form = document.querySelector('form.checkout') || document.querySelector('form[name="checkout"]');
-            if (form) {
-                let submitBtn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
-                if (submitBtn) { submitBtn.click(); }
-                else { form.submit(); }
-            }
-        """)
-        
-        print("انتظار تحويل الصفحة ومُعالجة الطلب...")
-        time.sleep(10)
+        print("3. إرسال الطلب الضغط على زر التقديم...")
+        # النقر على الزر الرئيسي المرئي فقط بفرصة الحفظ والانتظار
+        submit_btn = page.locator("#place_order:visible, button.cfw-primary-btn:visible, button[type='submit']:visible").first
+        submit_btn.click()
+        print("تم الضغط على زر الشراء/المراجعة...")
 
-        # محاولة الضغط التأكيدي إذا كانت هناك خطوة مراجعة ثانية
-        page.evaluate("""
-            let btn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
-            if (btn && btn.offsetWidth > 0) btn.click();
-        """)
+        time.sleep(5)
 
-        print("انتظار 25 ثانية لتحميل صفحة نجاح الطلب (Order Received)...")
-        time.sleep(25)
+        # إذا كانت هناك خطوة ثانية في القالب (Review / Complete Order)
+        confirm_btn = page.locator("#place_order:visible, button.cfw-primary-btn:visible").first
+        if confirm_btn.is_visible():
+            confirm_btn.click()
+            print("تم الضغط على تأكيد الطلب النهائي...")
 
-        # البحث عن رابط M3U في كامل محتوى النص وروابط الصفحة
+        print("انتظار الانتقال لصفحة النجاح (Order Received)...")
+        try:
+            page.wait_for_url("**/order-received/**", timeout=40000)
+            print("تم الانتقال لصفحة النجاح بنجاح!")
+        except Exception:
+            print("لم يتم التحويل التلقائي، جاري فحص محتوى الصفحة الحالي...")
+
+        time.sleep(5)
+
+        # استخراج رابط M3U
         content = page.content()
         m3u_url = ""
 
@@ -90,7 +88,6 @@ def run():
         if m3u_matches:
             m3u_url = m3u_matches[0]
 
-        # خيار إضافي لاستخراج الرابط من عناصر A إذا وُجد
         if not m3u_url:
             links = page.locator("a[href*='get.php'], a[href*='m3u']").all()
             for link in links:
@@ -100,10 +97,9 @@ def run():
                     break
 
         print(f"نتيجة الاستخراج: {m3u_url}")
+        print(f"رابط الصفحة الحالي: {page.url}")
 
         if not m3u_url:
-            # طباعة جزء من المحتوى في اللوج لمساعدتنا إن تعثرت القراءة
-            print("الصفحة الحالية URL:", page.url)
             raise Exception("تعذر العثور على رابط M3U. تحقق من إتمام الطلب.")
 
         # ==========================================
