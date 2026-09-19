@@ -24,7 +24,7 @@ def run():
         temp_email = page_mail.input_value("#mail")
         print(f"تم الحصول على البريد المؤقت: {temp_email}")
 
-        # 2. فتح موقع Greatest IPTV التسجيل
+        # 2. فتح موقع Greatest IPTV والتسجيل
         page_iptv = context.new_page()
         print("2. جاري فتح موقع Greatest IPTV...")
         page_iptv.goto("https://www.greatestiptv.com/home/", wait_until="domcontentloaded", timeout=60000)
@@ -36,15 +36,34 @@ def run():
         page_iptv.click("text=ACTIVATE YOUR FREE TRIAL")
         print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
-        # 3. العودة لتبويب البريد المؤقت وانتظار وصول الرسالة
+        # 3. العودة لتبويب البريد المؤقت وانتظار وصول الرسالة مع تحديث الصفحة
         page_mail.bring_to_front()
-        print("4. بانتظار وصول رسالة التفعيل...")
+        print("4. بانتظار وصول رسالة التفعيل وحث الصفحة على التحديث...")
         
-        # الانتظار حتى تظهر الرسالة
-        page_mail.wait_for_selector("text=Greatest TV", timeout=120000)
-        page_mail.click("text=Greatest TV")
-        
+        mail_found = False
+        start_time = time.time()
+        timeout = 150 # انتظار لمدة دقيقتين ونصف
+
+        while time.time() - start_time < timeout:
+            # التحقق مما إذا ظهرت الرسالة
+            for selector in ["text=Greatest TV", "text=Greatest IPTV", "text=Your Free Trial is Ready", "text=noreply@greatestiptv.com"]:
+                if page_mail.locator(selector).is_visible():
+                    page_mail.click(selector)
+                    mail_found = True
+                    break
+            
+            if mail_found:
+                break
+                
+            # إن لم تظهر، انتظر قليلاً ثم قم بإعادة تنشيط/تحميل الصفحة
+            time.sleep(8)
+            page_mail.reload(wait_until="domcontentloaded")
+
+        if not mail_found:
+            raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
+
         # قراءة محتوى الرسالة واستخراج الرابط
+        print("5. قراءة الرسالة واستخراج رابط M3U...")
         time.sleep(3)
         content = page_mail.content()
         
@@ -56,7 +75,7 @@ def run():
             raise Exception("تعذر العثور على رابط M3U داخل الرسالة.")
             
         m3u_url = m3u_match.group(0).replace("&amp;", "&")
-        print(f"5. تم استخراج رابط M3U بنجاح: {m3u_url}")
+        print(f"تم استخراج رابط M3U بنجاح: {m3u_url}")
 
         # 4. التوجه لموقع MyTV وتحديث التلفزيون
         page_tv = context.new_page()
