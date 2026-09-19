@@ -36,35 +36,54 @@ def run():
         page_iptv.click("text=ACTIVATE YOUR FREE TRIAL")
         print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
-        # 3. العودة لتبويب البريد المؤقت وانتظار وصول الرسالة مع تحديث الصفحة
+        # 3. العودة لتبويب البريد المؤقت وانتظار وصول الرسالة بدون عمل Reload للمتصفح
         page_mail.bring_to_front()
         print("4. بانتظار وصول رسالة التفعيل وحث الصفحة على التحديث...")
         
         mail_found = False
         start_time = time.time()
-        timeout = 150 # انتظار لمدة دقيقتين ونصف
+        timeout = 180 # انتظار لمدة 3 دقائق
 
         while time.time() - start_time < timeout:
+            # النقر على زر التحديث الخاص بالموقع إن وجد لمنع تغيير الإيميل
+            try:
+                refresh_btn = page_mail.locator("a#click-to-refresh, button#click-to-refresh, .btn-refresh")
+                if refresh_btn.is_visible():
+                    refresh_btn.click()
+            except Exception:
+                pass
+
             # التحقق مما إذا ظهرت الرسالة
-            for selector in ["text=Greatest TV", "text=Greatest IPTV", "text=Your Free Trial is Ready", "text=noreply@greatestiptv.com"]:
+            for selector in [
+                "text=Greatest TV", 
+                "text=Greatest IPTV", 
+                "text=Your Free Trial is Ready", 
+                "text=noreply@greatestiptv.com",
+                ".inbox-dataList ul li"
+            ]:
                 if page_mail.locator(selector).is_visible():
-                    page_mail.click(selector)
-                    mail_found = True
+                    # التأكد من عدم النقر على العناوين التوضيحية
+                    elements = page_mail.locator(selector).all()
+                    for el in elements:
+                        txt = el.inner_text().lower()
+                        if "greatest" in txt or "trial" in txt:
+                            el.click()
+                            mail_found = True
+                            break
+                if mail_found:
                     break
             
             if mail_found:
                 break
                 
-            # إن لم تظهر، انتظر قليلاً ثم قم بإعادة تنشيط/تحميل الصفحة
-            time.sleep(8)
-            page_mail.reload(wait_until="domcontentloaded")
+            time.sleep(6)
 
         if not mail_found:
             raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
 
         # قراءة محتوى الرسالة واستخراج الرابط
         print("5. قراءة الرسالة واستخراج رابط M3U...")
-        time.sleep(3)
+        time.sleep(4)
         content = page_mail.content()
         
         m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+[^\s"<]*', content)
