@@ -8,47 +8,54 @@ from playwright.sync_api import sync_playwright
 
 DEVICE_ID = os.environ.get("MYTV_DEVICE_ID", "d2ae-801d-d2f7-94d5-9398")
 
-def generate_random_string(length=10):
+def generate_random_str(length=8):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
-def get_1secmail():
-    """إنشاء بريد مؤقت باسم ونطاق عشوائي"""
-    username = generate_random_string(10)
-    domains = ["1secmail.com", "1secmail.org", "1secmail.net"]
-    domain = random.choice(domains)
+def create_mailtm_account():
+    """إنشاء حساب بريد حقيقي ونظيف عبر Mail.tm API"""
+    session = requests.Session()
+    session.headers.update({"Content-Type": "application/json"})
+    
+    # 1. جلب الدومين المتاح
+    res_domain = session.get("https://api.mail.tm/domains").json()
+    domain = res_domain['hydra:member'][0]['domain']
+    
+    # 2. إنشاء اسم بريد وكلمة سر
+    username = f"user_{generate_random_str()}"
     email = f"{username}@{domain}"
-    return username, domain, email
+    password = f"P@ss_{generate_random_str(10)}"
+    
+    # 3. تسجيل الحساب
+    session.post("https://api.mail.tm/accounts", json={"address": email, "password": password})
+    
+    # 4. جلب التوكن (Token)
+    res_token = session.post("https://api.mail.tm/token", json={"address": email, "password": password}).json()
+    token = res_token.get("token")
+    
+    session.headers.update({"Authorization": f"Bearer {token}"})
+    return session, email
 
-def check_1secmail_inbox(session, username, domain):
-    """فحص صندوق الرسائل الواردة بأمان"""
-    url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
+def check_mailtm_inbox(session):
+    """فحص الرسائل الواردة من Mail.tm"""
     try:
-        res = session.get(url, timeout=15)
-        if res.status_code == 200 and res.text.strip():
-            messages = res.json()
-            for msg in messages:
-                msg_id = msg.get("id")
-                read_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}"
-                read_res = session.get(read_url, timeout=15)
-                if read_res.status_code == 200 and read_res.text.strip():
-                    msg_detail = read_res.json()
-                    body = msg_detail.get("body", "") or msg_detail.get("textBody", "")
-                    if "greatest" in body.lower() or "trial" in body.lower() or "m3u" in body.lower():
-                        return body
+        res = session.get("https://api.mail.tm/messages").json()
+        messages = res.get('hydra:member', [])
+        for msg in messages:
+            msg_id = msg['id']
+            # جلب تفاصيل الرسالة
+            msg_detail = session.get(f"https://api.mail.tm/messages/{msg_id}").json()
+            body = msg_detail.get('html', [''])[0] if isinstance(msg_detail.get('html'), list) else msg_detail.get('html', '')
+            if not body:
+                body = msg_detail.get('text', '')
+            return body
     except Exception as e:
         print(f"تنبيه أثناء فحص البريد: {e}")
     return None
 
 def run():
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/json"
-    })
-
-    # 1. إنشاء بريد مؤقت جديد
-    username, domain, temp_email = get_1secmail()
-    print(f"1. تم إنشاء البريد المؤقت: {temp_email}")
+    print("1. جاري إنشاء بريد إلكتروني نظيف عبر Mail.tm...")
+    mail_session, temp_email = create_mailtm_account()
+    print(f"تم الحصول على البريد: {temp_email}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -70,17 +77,17 @@ def run():
         print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
         # 3. فحص وصول البريد عبر API
-        print("4. فحص البريد الوارد عبر 1secmail API...")
+        print("4. فحص البريد الوارد...")
         mail_body = None
         start_time = time.time()
         timeout = 180  # 3 دقائق
 
         while time.time() - start_time < timeout:
-            mail_body = check_1secmail_inbox(session, username, domain)
+            mail_body = check_mailtm_inbox(mail_session)
             if mail_body:
                 print("تمت استعادة رسالة التفعيل بنجاح!")
                 break
-            time.sleep(10)
+            time.sleep(6)
 
         if not mail_body:
             raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
