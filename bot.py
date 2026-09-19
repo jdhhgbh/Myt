@@ -20,17 +20,21 @@ def get_1secmail():
     return username, domain, email
 
 def check_1secmail_inbox(session, username, domain):
-    """فحص صندوق الرسائل الواردة"""
+    """فحص صندوق الرسائل الواردة بأمان"""
     url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
     try:
-        res = session.get(url, timeout=10).json()
-        for msg in res:
-            msg_id = msg.get("id")
-            # جلب محتوى الرسالة
-            read_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}"
-            msg_detail = session.get(read_url, timeout=10).json()
-            body = msg_detail.get("body", "") or msg_detail.get("textBody", "")
-            return body
+        res = session.get(url, timeout=15)
+        if res.status_code == 200 and res.text.strip():
+            messages = res.json()
+            for msg in messages:
+                msg_id = msg.get("id")
+                read_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}"
+                read_res = session.get(read_url, timeout=15)
+                if read_res.status_code == 200 and read_res.text.strip():
+                    msg_detail = read_res.json()
+                    body = msg_detail.get("body", "") or msg_detail.get("textBody", "")
+                    if "greatest" in body.lower() or "trial" in body.lower() or "m3u" in body.lower():
+                        return body
     except Exception as e:
         print(f"تنبيه أثناء فحص البريد: {e}")
     return None
@@ -38,7 +42,8 @@ def check_1secmail_inbox(session, username, domain):
 def run():
     session = requests.Session()
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json"
     })
 
     # 1. إنشاء بريد مؤقت جديد
@@ -75,7 +80,7 @@ def run():
             if mail_body:
                 print("تمت استعادة رسالة التفعيل بنجاح!")
                 break
-            time.sleep(7)
+            time.sleep(10)
 
         if not mail_body:
             raise Exception("انتهت المهلة ولم تظهر رسالة التفعيل في صندوق البريد.")
