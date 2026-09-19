@@ -16,7 +16,7 @@ def run():
     site_a_url = "https://xcodesiptv.com/i18/"
     site_b_url = "https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid=d2ae-801d-d2f7-94d5-9398&lang=ar-SA"
 
-    email_site_a = f"{generate_random_string()}@outlook.sa"
+    email_site_a = f"{generate_random_string()}@gmail.com"
     password_site_a = generate_strong_password()
     first_name = generate_random_string(6).capitalize()
     last_name = generate_random_string(6).capitalize()
@@ -32,7 +32,6 @@ def run():
         )
         page = context.new_page()
 
-        # الاستماع لطلبات الاستجابة لالتقاط رابط M3U إذا صدر من الـ API مباشرة
         def handle_response(response):
             try:
                 if "get.php" in response.url or "m3u" in response.url:
@@ -42,57 +41,72 @@ def run():
 
         page.on("response", handle_response)
 
-        print("1. فتح الصفحة الرئيسية للموقع الأول...")
+        print("1. فتح الصفحة الرئيسية...")
         page.goto(site_a_url, wait_until="domcontentloaded")
         time.sleep(3)
 
-        print("إضافة المنتج للسلة...")
-        page.evaluate("""
-            let btn = document.querySelector("a[href*='add-to-cart'], button[type='submit'], .add_to_cart_button");
-            if (btn) btn.click();
-        """)
+        print("الضغط على Add to Cart...")
+        page.locator("a:has-text('Add to Cart'), button:has-text('Add to Cart')").first.click()
+        time.sleep(4)
 
-        print("2. انتظار تحميل صفحة إدخال البيانات...")
-        # انتظار حقل الإيميل بمرونة عبر JS تفادياً لـ Timeout
-        page.wait_for_function("document.querySelector('input[type=\"email\"]') !== null", timeout=40000)
+        print("2. تعبئة بيانات الحساب والدولة...")
+        page.locator("input[type='email']").first.fill(email_site_a)
+        
+        pass_input = page.locator("input[type='password']").first
+        if pass_input.is_visible():
+            pass_input.fill(password_site_a)
+
+        fname_input = page.locator("input[name*='first_name']").first
+        if fname_input.is_visible():
+            fname_input.fill(first_name)
+
+        lname_input = page.locator("input[name*='last_name']").first
+        if lname_input.is_visible():
+            lname_input.fill(last_name)
+
+        # اختيار الدولة (مطلوب إجباري في النموذج)
+        try:
+            country_select = page.locator("select[name*='country'], #billing_country").first
+            if country_select.is_visible():
+                country_select.select_option(value="SA")  # اختيار السعودية أو أول خيار
+        except Exception:
+            # في حال كانت القائمة المنسدلة مصممة بـ Select2 / Custom JS
+            page.evaluate("""
+                let select = document.querySelector("select[name*='country']");
+                if (select && select.options.length > 1) {
+                    select.selectedIndex = 1;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            """)
+
         time.sleep(2)
 
-        print("3. تعبئة بيانات الحساب بواسطة JS المباشر...")
-        page.evaluate(f"""
-            let setVal = (selector, val) => {{
-                let el = document.querySelector(selector);
-                if (el) {{
-                    el.value = val;
-                    el.dispatchEvent(new Event('input', {{ 'bubbles': true }}));
-                    el.dispatchEvent(new Event('change', {{ 'bubbles': true }}));
-                }}
-            }};
-            setVal("input[type='email']", '{email_site_a}');
-            setVal("input[type='password']", '{password_site_a}');
-            setVal("input[name*='first_name']", '{first_name}');
-            setVal("input[name*='last_name']", '{last_name}');
-        """)
-        time.sleep(2)
+        print("3. الضغط على الخطوة الأولى: Review order...")
+        review_btn = page.locator("button:has-text('Review order'), a:has-text('Review order')").first
+        if review_btn.is_visible():
+            review_btn.click()
+        else:
+            page.evaluate("""
+                let btn = Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Review order'));
+                if (btn) btn.click();
+            """)
 
-        print("4. إرسال الطلب وحجز التجربة...")
-        page.evaluate("""
-            let submitBtn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
-            if (submitBtn) {{ submitBtn.click(); }}
-            else {{
-                let form = document.querySelector('form.checkout');
-                if (form) form.submit();
-            }}
-        """)
-
+        print("انتظار الانتقال لصفحة المراجعة...")
         time.sleep(5)
 
-        # الضغط المباشر الاحتياطي لإكمال الطلب
-        page.evaluate("""
-            let btn = document.querySelector('#place_order') || document.querySelector('button.cfw-primary-btn');
-            if (btn && btn.offsetWidth > 0) btn.click();
-        """)
+        print("4. الضغط على الخطوة الثانية: التأكيد النهائي للطلب...")
+        # الضغط على زر التأكيد النهائي بعد الانتقال لصفحة المراجعة
+        complete_btn = page.locator("#place_order, button:has-text('Complete'), button:has-text('Place Order')").first
+        if complete_btn.is_visible():
+            complete_btn.click()
+        else:
+            page.evaluate("""
+                let btn = document.querySelector('#place_order') || 
+                          Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Complete') || el.textContent.includes('Place'));
+                if (btn) btn.click();
+            """)
 
-        print("انتظار 25 ثانية لتوليد الرابط...")
+        print("انتظار 25 ثانية لمعالجة السيرفر وتوليد الرابط...")
         time.sleep(25)
 
         # استخراج رابط M3U
@@ -151,14 +165,12 @@ def run():
 
         upload_submit_btn = page.locator("button:has-text('Upload')").first
         upload_submit_btn.click()
-        print("تم إرسال القنوات، جاري معالجة صفحات القروبات...")
         time.sleep(5)
 
         for i in range(2):
             skip_btn = page.locator("text='Skip', button:has-text('Skip'), a:has-text('Skip')").first
             if skip_btn.is_visible():
                 skip_btn.click()
-                print(f"تم الضغط على Skip رقم {i+1}")
                 time.sleep(3)
 
         print("تمت العملية بنجاح بالكامل!")
