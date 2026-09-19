@@ -1,95 +1,112 @@
 import os
 import re
 import time
+import requests
 from playwright.sync_api import sync_playwright
 
 DEVICE_ID = os.environ.get("MYTV_DEVICE_ID", "d2ae-801d-d2f7-94d5-9398")
 
+def create_mailtm_account():
+    """إنشاء حساب بريد مؤقت عبر Mail.tm API"""
+    # 1. جلب النطاقات المتاحة
+    res = requests.get("https://api.mail.tm/domains").json()
+    domain = res['hydra:member'][0]['domain']
+    
+    # 2. إنشاء اسم مستخدم وكلمة مرور عشوائية
+    username = f"user_{int(time.time())}"
+    email = f"{username}@{domain}"
+    password = "PassWord123!"
+    
+    # 3. تسجيل الحساب
+    requests.post("https://api.mail.tm/accounts", json={"address": email, "password": password})
+    
+    # 4. جلب رمز التوثيق (Token)
+    token_res = requests.post("https://api.mail.tm/token", json={"address": email, "password": password}).json()
+    token = token_res['token']
+    
+    return email, token
+
+def wait_for_m3u_mailtm(token, timeout=120):
+    """انتظار وصول البريد واستخراج رابط M3U"""
+    headers = {"Authorization": f"Bearer {token}"}
+    start_time = time.time()
+    print("بانتظار وصول البريد...")
+    
+    while time.time() - start_time < timeout:
+        res = requests.get("https://api.mail.tm/messages", headers=headers).json()
+        messages = res.get('hydra:member', [])
+        
+        if messages:
+            msg_id = messages[0]['id']
+            msg_detail = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers).json()
+            body = msg_detail.get('text') or msg_detail.get('html') or ""
+            
+            # استخراج رابط M3U
+            m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+&type=m3u_plus&output=ts', body)
+            if not m3u_match:
+                m3u_match = re.search(r'http://gr8iptv\.com/get\.php\?[^\s"<]+', body)
+                
+            if m3u_match:
+                return m3u_match.group(0).replace("&amp;", "&")
+                
+        time.sleep(5)
+    raise Exception("انتهت المهلة ولم يصل رابط M3U.")
+
 def run():
+    # 1. إنشاء البريد المؤقت
+    email, token = create_mailtm_account()
+    print(f"1. تم إنشاء البريد المؤقت بنجاح: {email}")
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         )
-        
-        # 1. فتح موقع البريد المؤقت وتوليد إيميل
-        page_mail = context.new_page()
-        print("1. جاري فتح موقع البريد المؤقت...")
-        page_mail.goto("https://temp-mail.org/ar/", wait_until="networkidle")
-        
-        # الانتظار حتى يظهر الإيميل ونسخه
-        page_mail.wait_for_selector("#mail", timeout=30000)
-        time.sleep(3)
-        temp_email = page_mail.input_value("#mail")
-        print(f"تم الحصول على البريد المؤقت: {temp_email}")
+        page = context.new_page()
 
-        # 2. فتح موقع Greatest IPTV في تبويب جديد والتسجيل
-        page_iptv = context.new_page()
+        # 2. التسجيل في موقع Greatest IPTV
         print("2. جاري فتح موقع Greatest IPTV...")
-        page_iptv.goto("https://www.greatestiptv.com/home/", wait_until="domcontentloaded")
+        page.goto("https://www.greatestiptv.com/home/", wait_until="domcontentloaded")
+        page.click("text=Try 36 hours free")
         
-        # الضغط على Try 36 hours free
-        page_iptv.click("text=Try 36 hours free")
-        
-        # إدخال البريد والضغط على Activate
-        page_iptv.wait_for_selector("input[type='email']", timeout=15000)
-        page_iptv.fill("input[type='email']", temp_email)
-        page_iptv.click("text=ACTIVATE YOUR FREE TRIAL")
-        print("3. تم تقديم طلب التفعيل، جاري الانتظار للرسالة...")
+        page.wait_for_selector("input[type='email']", timeout=15000)
+        page.fill("input[type='email']", email)
+        page.click("text=ACTIVATE YOUR FREE TRIAL")
+        print("3. تم تقديم طلب التفعيل، بانتظار وصول البريد...")
 
-        # 3. العودة لتبويب البريد المؤقت وانتظار وصول الرسالة
-        page_mail.bring_to_front()
-        print("4. بانتظار وصول رسالة التفعيل...")
-        
-        # الانتظار حتى تظهر رسالة Greatest TV في الصندوق
-        page_mail.wait_for_selector("text=Greatest TV", timeout=120000)
-        page_mail.click("text=Greatest TV")
-        
-        # فتح الرسالة وقراءة رابط M3U
-        page_mail.wait_for_selector("text=M3U Playlist", timeout=15000)
-        content = page_mail.content()
-        
-        # استخراج رابط M3U باستخدام Regex
-        m3u_match = re.search(r'https?://[^\s"<]+\?username=[^\s"<&]+&password=[^\s"<&]+&type=m3u_plus&output=ts', content)
-        if not m3u_match:
-            m3u_match = re.search(r'http://gr8iptv\.com/get\.php\?[^\s"<]+', content)
-            
-        if not m3u_match:
-            raise Exception("تعذر العثور على رابط M3U داخل الرسالة.")
-            
-        m3u_url = m3u_match.group(0).replace("&amp;", "&")
-        print(f"5. تم استخراج رابط M3U بنجاح: {m3u_url}")
+        # 3. قراءة البريد وجلب الرابط
+        m3u_url = wait_for_m3u_mailtm(token)
+        print(f"4. تم استخراج رابط M3U بنجاح: {m3u_url}")
 
-        # 4. التوجه لموقع MyTV وتحديث القائمة
-        page_tv = context.new_page()
+        # 4. التوجه لموقع MyTV وتحديث التلفزيون
         mytv_link = f"https://mytv.best/qr-code/?action=modification&cc=sa&utm_source=app&utm_medium=organic&utm_campaign=upload&tvid={DEVICE_ID}&lang=ar-SA"
-        print("6. الانتقال إلى موقع MyTV...")
-        page_tv.goto(mytv_link, wait_until="domcontentloaded")
+        print("5. الانتقال إلى موقع MyTV...")
+        page.goto(mytv_link, wait_until="domcontentloaded")
         
-        page_tv.click("text=Express Modification")
-        page_tv.click("text=Upload new playlist")
+        page.click("text=Express Modification")
+        page.click("text=Upload new playlist")
 
         # تعبئة البيانات
-        print("7. إدخال بيانات الجهاز والتحديث...")
-        page_tv.fill("input[type='email']", f"user_{int(time.time())}@gmail.com")
+        print("6. إدخال بيانات الجهاز والتحديث...")
+        page.fill("input[type='email']", f"user_{int(time.time())}@gmail.com")
         
         # اختيار M3U URL وإدخال الرابط
-        page_tv.select_option("select", label="M3U URL")
-        page_tv.fill("textarea", m3u_url)
+        page.select_option("select", label="M3U URL")
+        page.fill("textarea", m3u_url)
         
-        # الموافقة على الشروط والضغط على Upload
-        page_tv.check("input[type='checkbox']")
-        page_tv.click("button:has-text('Upload')")
+        # الموافقة والرفع
+        page.check("input[type='checkbox']")
+        page.click("button:has-text('Upload')")
         
-        # التجاوز (Skip) للصفحتين التاليتين
-        print("8. جاري رفع القائمة والتجاوز (قد يستغرق دقيقتين)...")
-        page_tv.wait_for_selector("text=Skip", timeout=120000)
-        page_tv.click("text=Skip")
+        # التجاوز (Skip)
+        print("7. جاري رفع القائمة للتلفزيون والتجاوز...")
+        page.wait_for_selector("text=Skip", timeout=120000)
+        page.click("text=Skip")
         
-        page_tv.wait_for_selector("text=Skip", timeout=30000)
-        page_tv.click("text=Skip")
+        page.wait_for_selector("text=Skip", timeout=30000)
+        page.click("text=Skip")
 
-        print("9. تم إكمال العملية بنجاح وتحديث التلفزيون!")
+        print("8. تم إكمال العملية بنجاح وتحديث التلفزيون!")
         browser.close()
 
 if __name__ == "__main__":
